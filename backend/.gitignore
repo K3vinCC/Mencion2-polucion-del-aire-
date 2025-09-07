@@ -1,0 +1,16 @@
+# Entorno Virtual de Python
+venv/
+
+# Archivos de caché de Python
+__pycache__/
+*.pyc
+
+# Archivo de variables de entorno (¡Contiene secretos!)
+.env
+
+# Base de datos de SQLite (es un archivo generado, no código fuente)
+database.db
+
+# Otros archivos de sistema operativo
+.DS_Store
+Thumbs.db
