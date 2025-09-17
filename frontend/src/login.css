@@ -1,0 +1,138 @@
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #00a6d6; 
+}
+
+.lh-root {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  width: 100vw;
+}
+
+.lh-card {
+  background: #484856; 
+  padding: 2.5rem;
+  border-radius: 1rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.lh-avatar {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.lh-roles {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 1.5rem;
+}
+
+.lh-role {
+  position: relative;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #ffffff;
+}
+
+.lh-role input {
+  display: none;
+}
+
+.lh-dot {
+  position: absolute;
+  top: 50%;
+  left: -20px;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  background: transparent;
+}
+
+.lh-dot.filled {
+  background: #fdfdfd;
+}
+
+.lh-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.lh-field {
+  text-align: left;
+}
+
+.lh-field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 0.25rem;
+  color: #ffffff;
+}
+
+.lh-field input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  outline: none;
+  font-size: 1rem;
+  background-color: #ffffff; 
+}
+
+.lh-field input:focus {
+  border-color: #00a6d6; 
+  box-shadow: 0 0 4px #00a6d6;
+}
+
+.lh-buttons {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.lh-btn {
+  flex: 1;
+  padding: 0.75rem;
+  background: #ffd60a; 
+  color: #1e3a5f; 
+  border: none;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.2s;
+}
+
+.lh-btn:hover {
+  background: #00a6d6; 
+  color: #ffffff;
+  transform: scale(1.03);
+}
+
+.lh-message {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #ffffff;
+}
+.lh-logo {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  width: 120px; 
+}
+
+.lh-logo img {
+  width: 100%;
+  height: auto;
+}
