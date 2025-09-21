@@ -9,9 +9,9 @@
 #include <HardwareSerial.h>
 
 // -------------------- CONFIG --------------------
-const char* ssid = "kevinc";
-const char* password = "123456789";
-const char* serverURL = "https://respirasegurouct.duckdns.org/datos";
+const char* ssid = "nombre_wifi";
+const char* password = "contraseña_wifi";
+const char* serverURL = "direccion_servidor"; // e.g., "http://example.com/api/data"
 
 // -------------------- ESTRUCTURA --------------------
 struct PMS5003Data {
