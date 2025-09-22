@@ -687,7 +687,8 @@ html, body, #root {
   }
 }
 /* Ajustes específicos para pantallas muy pequeñas */
-@media (max-width: 900px) {
+@media (max-width: 530px
+) {
   .auth-content, .auth-card, .container {
     max-width: 95vw;
     padding: 1.5rem;

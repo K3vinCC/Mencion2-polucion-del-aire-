@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import './login.css';
 import logoImg from './assets/logouct.png';
+import { useNavigate } from 'react-router-dom';
 function LoginModel({ email = '', password = '', role = 'admin' } = {}) {
   return { email, password, role };
 }
@@ -10,72 +11,92 @@ function RegisterModel({ name = '', email = '', password = '', confirmPassword =
 }
 
 class AuthAdapter {
-  async authenticate({ email, password, role }) {
-    await new Promise(r => setTimeout(r, 800));
-    if (!email || !password) return { success: false, message: 'Faltan credenciales' };
-    if (password.length < 6) return { success: false, message: 'Contraseña muy corta' };
-    return { success: true, message: `Autenticado como ${role}` };
+  constructor(baseURL = 'http://localhost:5000') { // Solo host
+    this.baseURL = baseURL;
   }
 
-  async register({ name, email, password, confirmPassword, role }) {
-    await new Promise(r => setTimeout(r, 1000));
-    if (!name || !email || !password || !confirmPassword) {
-      return { success: false, message: 'Todos los campos son requeridos' };
+  async authenticate({ email, password }) {
+    const res = await fetch(`${this.baseURL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+    return await res.json();
+  }
+
+  async register({ nombre, email, password, role }) {
+    const url = role === "conserje" ? `${this.baseURL}/auth/register/conserje` : `${this.baseURL}/auth/register`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nombre_completo: nombre, email, password, rol: role })
+    });
+    return await res.json();
+  }
+}
+
+
+
+class LoginUseCase {
+  constructor(authAdapter) { 
+    this.authAdapter = authAdapter; 
+  }
+
+  async execute(model) {
+    if (!model.email.includes('@')) 
+      return { success: false, message: 'Email inválido' };
+
+    const res = await this.authAdapter.authenticate(model);
+
+    if (!res.success) return res; // credenciales inválidas
+
+    // Mapear rol_id del backend a nombre
+    const backendRol = res.rol === 1 ? 'admin' : 'conserje';
+
+    if (backendRol !== model.role) {
+      return { success: false, message: 'Credenciales inválidas' };
     }
+
+    // ✅ Login correcto → guardar info en localStorage
+    localStorage.setItem("user", JSON.stringify({
+      email: model.email,
+      rol: backendRol,
+      token: res.token || "fake-jwt"
+    }));
+
+    return { success: true, message: 'Login exitoso', rol: backendRol };
+  }
+}
+
+
+
+class RegisterUseCase {
+  constructor(authAdapter) { this.authAdapter = authAdapter; }
+
+  async execute({ nombre, email, password, confirmPassword, role }) {
     if (password !== confirmPassword) {
       return { success: false, message: 'Las contraseñas no coinciden' };
     }
-    if (password.length < 6) {
-      return { success: false, message: 'Contraseña debe tener al menos 6 caracteres' };
-    }
-    return { success: true, message: `Usuario ${name} registrado como ${role}` };
-  }
-}
-
-class LoginUseCase {
-  constructor(authAdapter) {
-    this.authAdapter = authAdapter;
-  }
-
-  async execute(model) {
-    if (!model.email.includes('@')) return { success: false, message: 'Email inválido' };
-    return await this.authAdapter.authenticate(model);
-  }
-}
-
-class RegisterUseCase {
-  constructor(authAdapter) {
-    this.authAdapter = authAdapter;
-  }
-
-  async execute(model) {
-    if (!model.email.includes('@')) return { success: false, message: 'Email inválido' };
-    return await this.authAdapter.register(model);
+    return await this.authAdapter.register({ nombre, email, password, role });
   }
 }
 
 class LoginController {
-  constructor(loginUseCase) {
-    this.loginUseCase = loginUseCase;
-  }
+  constructor(loginUseCase) { this.loginUseCase = loginUseCase; }
 
   async login({ email, password, role, onResult }) {
-    const model = LoginModel({ email, password, role });
-    const res = await this.loginUseCase.execute(model);
-    if (typeof onResult === 'function') onResult(res);
+    const res = await this.loginUseCase.execute({ email, password, role });
+    if (onResult) onResult(res);
     return res;
   }
 }
 
 class RegisterController {
-  constructor(registerUseCase) {
-    this.registerUseCase = registerUseCase;
-  }
+  constructor(registerUseCase) { this.registerUseCase = registerUseCase; }
 
-  async register({ name, email, password, confirmPassword, role, onResult }) {
-    const model = RegisterModel({ name, email, password, confirmPassword, role });
-    const res = await this.registerUseCase.execute(model);
-    if (typeof onResult === 'function') onResult(res);
+  async register({ nombre, email, password, confirmPassword, role, onResult }) {
+    const res = await this.registerUseCase.execute({ nombre, email, password, confirmPassword, role });
+    if (onResult) onResult(res);
     return res;
   }
 }
@@ -90,20 +111,38 @@ function LoginForm({ onSwitchToRegister }) {
   const authAdapter = new AuthAdapter();
   const loginUseCase = new LoginUseCase(authAdapter);
   const controller = new LoginController(loginUseCase);
+  const navigate = useNavigate(); // <-- agregar
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
+
     const res = await controller.login({
       email,
       password,
       role,
       onResult: (r) => setMessage(r),
     });
+
     setLoading(false);
-    if (res.success) console.log('Redirect to dashboard...');
+
+    if (res.success) {
+      // Usa un switch o if-else para navegar según el rol devuelto por el caso de uso
+      switch(res.rol) {
+        case 'admin':
+          navigate('/principal');
+          break;
+        case 'conserje':
+          navigate('/principal');
+          break;
+        default:
+          navigate('/principal'); // Alternativa para otros roles o acceso general
+          break;
+      }
+    }
   };
+
 
   return (
     <div className="auth-card">
@@ -209,23 +248,36 @@ function RegisterForm({ onSwitchToLogin }) {
   const authAdapter = new AuthAdapter();
   const registerUseCase = new RegisterUseCase(authAdapter);
   const controller = new RegisterController(registerUseCase);
-
+  const navigate = useNavigate(); 
+  
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
+
     const res = await controller.register({
-      name,
+      nombre: name,
       email,
       password,
       confirmPassword,
       role,
-      onResult: (r) => setMessage(r),
+      onResult: (r) => setMessage(r)
     });
+
     setLoading(false);
+
     if (res.success) {
-      setTimeout(() => onSwitchToLogin(), 2000);
+      // Mapear rol correctamente
+      const backendRol = role; // el rol que seleccionaste al registrar
+      localStorage.setItem("user", JSON.stringify({
+        email,
+        rol: backendRol,
+        token: res.token || "fake-jwt"
+      }));
+      navigate('/principal');
     }
+
+
   };
 
   return (
