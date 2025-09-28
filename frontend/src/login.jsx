@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import './login.css';
+import logoImg from './assets/logouct.png';
+import { useNavigate } from 'react-router-dom';
+
 function LoginModel({ email = '', password = '', role = 'admin' } = {}) {
   return { email, password, role };
 }
@@ -9,72 +12,100 @@ function RegisterModel({ name = '', email = '', password = '', confirmPassword =
 }
 
 class AuthAdapter {
-  async authenticate({ email, password, role }) {
-    await new Promise(r => setTimeout(r, 800));
-    if (!email || !password) return { success: false, message: 'Faltan credenciales' };
-    if (password.length < 6) return { success: false, message: 'Contraseña muy corta' };
-    return { success: true, message: `Autenticado como ${role}` };
+  constructor(baseURL = 'http://localhost:5000') { // Solo host, sin /auth
+    this.baseURL = baseURL;
   }
 
-  async register({ name, email, password, confirmPassword, role }) {
-    await new Promise(r => setTimeout(r, 1000));
-    if (!name || !email || !password || !confirmPassword) {
-      return { success: false, message: 'Todos los campos son requeridos' };
+  async authenticate({ email, password }) {
+    try {
+      const res = await fetch(`${this.baseURL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: 'Error de conexión al servidor' };
     }
-    if (password !== confirmPassword) {
-      return { success: false, message: 'Las contraseñas no coinciden' };
+  }
+
+  async register({ nombre, email, password, role }) {
+    try {
+      const res = await fetch(`${this.baseURL}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          nombre_completo: nombre, 
+          email, 
+          password, 
+          rol: role 
+        })
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: 'Error de conexión al servidor' };
     }
-    if (password.length < 6) {
-      return { success: false, message: 'Contraseña debe tener al menos 6 caracteres' };
-    }
-    return { success: true, message: `Usuario ${name} registrado como ${role}` };
   }
 }
 
 class LoginUseCase {
-  constructor(authAdapter) {
-    this.authAdapter = authAdapter;
+  constructor(authAdapter) { 
+    this.authAdapter = authAdapter; 
   }
 
   async execute(model) {
-    if (!model.email.includes('@')) return { success: false, message: 'Email inválido' };
-    return await this.authAdapter.authenticate(model);
+    if (!model.email.includes('@')) 
+      return { success: false, message: 'Email inválido' };
+
+    const res = await this.authAdapter.authenticate(model);
+
+    if (!res.success) return res; 
+
+  
+    const backendRol = res.rol === 2 ? 'admin' : 'conserje';
+
+    if (backendRol !== model.role) {
+      return { success: false, message: 'Credenciales inválidas' };
+    }
+
+   
+    localStorage.setItem("user", JSON.stringify({
+      email: model.email,
+      rol: backendRol,
+      token: res.token || "fake-jwt"
+    }));
+
+    return { success: true, message: 'Login exitoso', rol: backendRol };
   }
 }
 
 class RegisterUseCase {
-  constructor(authAdapter) {
-    this.authAdapter = authAdapter;
-  }
+  constructor(authAdapter) { this.authAdapter = authAdapter; }
 
-  async execute(model) {
-    if (!model.email.includes('@')) return { success: false, message: 'Email inválido' };
-    return await this.authAdapter.register(model);
+  async execute({ nombre, email, password, confirmPassword, role }) {
+    if (password !== confirmPassword) {
+      return { success: false, message: 'Las contraseñas no coinciden' };
+    }
+    return await this.authAdapter.register({ nombre, email, password, role });
   }
 }
 
 class LoginController {
-  constructor(loginUseCase) {
-    this.loginUseCase = loginUseCase;
-  }
+  constructor(loginUseCase) { this.loginUseCase = loginUseCase; }
 
   async login({ email, password, role, onResult }) {
-    const model = LoginModel({ email, password, role });
-    const res = await this.loginUseCase.execute(model);
-    if (typeof onResult === 'function') onResult(res);
+    const res = await this.loginUseCase.execute({ email, password, role });
+    if (onResult) onResult(res);
     return res;
   }
 }
 
 class RegisterController {
-  constructor(registerUseCase) {
-    this.registerUseCase = registerUseCase;
-  }
+  constructor(registerUseCase) { this.registerUseCase = registerUseCase; }
 
-  async register({ name, email, password, confirmPassword, role, onResult }) {
-    const model = RegisterModel({ name, email, password, confirmPassword, role });
-    const res = await this.registerUseCase.execute(model);
-    if (typeof onResult === 'function') onResult(res);
+  async register({ nombre, email, password, confirmPassword, role, onResult }) {
+    const res = await this.registerUseCase.execute({ nombre, email, password, confirmPassword, role });
+    if (onResult) onResult(res);
     return res;
   }
 }
@@ -89,19 +120,35 @@ function LoginForm({ onSwitchToRegister }) {
   const authAdapter = new AuthAdapter();
   const loginUseCase = new LoginUseCase(authAdapter);
   const controller = new LoginController(loginUseCase);
+  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
+
     const res = await controller.login({
       email,
       password,
       role,
       onResult: (r) => setMessage(r),
     });
+
     setLoading(false);
-    if (res.success) console.log('Redirect to dashboard...');
+
+    if (res.success) {
+      switch(res.rol) {
+        case 'admin':
+          navigate('/principal');
+          break;
+        case 'conserje':
+          navigate('/principal');
+          break;
+        default:
+          navigate('/principal');
+          break;
+      }
+    }
   };
 
   return (
@@ -208,22 +255,33 @@ function RegisterForm({ onSwitchToLogin }) {
   const authAdapter = new AuthAdapter();
   const registerUseCase = new RegisterUseCase(authAdapter);
   const controller = new RegisterController(registerUseCase);
-
+  const navigate = useNavigate(); 
+  
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
+
+    console.log('🔥 Rol seleccionado antes de enviar:', role); // Debug
+
     const res = await controller.register({
-      name,
+      nombre: name,
       email,
       password,
       confirmPassword,
-      role,
-      onResult: (r) => setMessage(r),
+      role, 
+      onResult: (r) => setMessage(r)
     });
+
     setLoading(false);
+
     if (res.success) {
-      setTimeout(() => onSwitchToLogin(), 2000);
+      localStorage.setItem("user", JSON.stringify({
+        email,
+        rol: role, 
+        token: res.token || "fake-jwt"
+      }));
+      navigate('/principal');
     }
   };
 
@@ -372,20 +430,12 @@ export default function ModernAuthSystem() {
 
       <div className="logo-container">
         <div className="logo">
-          <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-            <circle cx="20" cy="20" r="20" fill="url(#gradient)"/>
-            <path d="M15 20l5 5 10-10" stroke="white" strokeWidth="2" fill="none"/>
-            <defs>
-              <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#ffffffff"/>
-                <stop offset="100%" stopColor="#ffffffff"/>
-              </linearGradient>
-            </defs>
-          </svg>
+          <img src={logoImg} alt="Logo" style={{ height: '60px', marginRight: '0.5rem' }} />
           <span>Universidad Catolica de Temuco</span>
         </div>
       </div>
-
+      <span className='nombreweb'>EcoAula UCT</span> 
+      <span className='nombrewebsecundario'>"Cuidando el aula, potenciando el rendimiento estudiantil."</span>
       <div className="auth-content">
         {isLogin ? (
           <LoginForm onSwitchToRegister={() => setIsLogin(false)} />
