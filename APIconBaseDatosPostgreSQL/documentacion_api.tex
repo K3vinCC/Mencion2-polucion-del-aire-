@@ -1,0 +1,796 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{float}
+
+\geometry{margin=2.5cm}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\leftmark}
+\fancyhead[R]{\thepage}
+
+\lstset{
+    language=JavaScript,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{blue},
+    stringstyle=\color{red},
+    commentstyle=\color{green!60!black},
+    numbers=left,
+    numberstyle=\tiny,
+    frame=single,
+    breaklines=true,
+    showstringspaces=false,
+    backgroundcolor=\color{gray!10}
+}
+
+\title{Documentación de la API de Monitoreo de Calidad del Aire}
+\author{Universidad Nacional}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+\section{Introducción}
+
+Esta documentación describe cómo utilizar la API REST de Monitoreo de Calidad del Aire de la Universidad Nacional. La API permite gestionar usuarios, dispositivos IoT, lecturas ambientales y asignaciones de limpieza.
+
+\subsection{Prerrequisitos}
+
+\begin{itemize}
+\item Python 3.8+
+\item Base de datos PostgreSQL o SQLite (para desarrollo)
+\item Token de autenticación JWT
+\item Herramientas: curl, Postman, o cualquier cliente HTTP
+\end{itemize}
+
+\subsection{URL Base}
+\begin{lstlisting}[language=]
+http://localhost:5000/api
+\end{lstlisting}
+
+\section{Autenticación}
+
+\subsection{Obtener Token de Acceso}
+
+\textbf{Endpoint:} \texttt{POST /api/auth/login}
+
+\textbf{Descripción:} Obtiene un token JWT para autenticar las solicitudes posteriores.
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Content-Type: application/json}
+\end{itemize}
+
+\textbf{Body (JSON):}
+\begin{lstlisting}[language=JSON]
+{
+    "email": "admin@universidad.edu",
+    "password": "admin123"
+}
+\end{lstlisting}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+curl -X POST http://localhost:5000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@universidad.edu",
+    "password": "admin123"
+  }'
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (200):}
+\begin{lstlisting}[language=JSON]
+{
+    "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+    "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+    "token_type": "Bearer",
+    "expires_in": 3600,
+    "user": {
+        "id": 1,
+        "email": "admin@universidad.edu",
+        "role": "administrador"
+    }
+}
+\end{lstlisting}
+
+\textbf{Guardar el token para usar en las siguientes solicitudes:}
+\begin{lstlisting}[language=bash]
+TOKEN="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
+\end{lstlisting}
+
+\subsection{Verificar Token}
+
+\textbf{Endpoint:} \texttt{GET /api/auth/verify}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\end{itemize}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+curl -X GET http://localhost:5000/api/auth/verify \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (200):}
+\begin{lstlisting}[language=JSON]
+{
+    "valid": true,
+    "user": {
+        "id": 1,
+        "email": "admin@universidad.edu",
+        "role": "administrador",
+        "universidad_id": 1
+    }
+}
+\end{lstlisting}
+
+\section{Gestión de Usuarios}
+
+\subsection{Obtener Lista de Usuarios}
+
+\textbf{Endpoint:} \texttt{GET /api/users}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\end{itemize}
+
+\textbf{Parámetros de consulta opcionales:}
+\begin{itemize}
+\item \texttt{universidad\_id}: Filtrar por universidad
+\item \texttt{role}: Filtrar por rol (administrador, supervisor, usuario)
+\item \texttt{limit}: Número máximo de resultados (default: 50)
+\end{itemize}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+# Obtener todos los usuarios
+curl -X GET http://localhost:5000/api/users \
+  -H "Authorization: Bearer $TOKEN"
+
+# Filtrar por rol
+curl -X GET "http://localhost:5000/api/users?role=usuario" \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (200):}
+\begin{lstlisting}[language=JSON]
+{
+    "users": [
+        {
+            "id": 1,
+            "nombre": "Administrador",
+            "apellido": "Sistema",
+            "email": "admin@universidad.edu",
+            "rol": "administrador",
+            "universidad_id": 1,
+            "activo": true,
+            "fecha_creacion": "2025-09-28T10:00:00Z"
+        }
+    ],
+    "total": 1
+}
+\end{lstlisting}
+
+\subsection{Obtener Usuario Específico}
+
+\textbf{Endpoint:} \texttt{GET /api/users/\{id\}}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\end{itemize}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+curl -X GET http://localhost:5000/api/users/1 \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (200):}
+\begin{lstlisting}[language=JSON]
+{
+    "user": {
+        "id": 1,
+        "nombre": "Administrador",
+        "apellido": "Sistema",
+        "email": "admin@universidad.edu",
+        "rol": "administrador",
+        "telefono": "987654321",
+        "universidad_id": 1,
+        "activo": true,
+        "fecha_creacion": "2025-09-28T10:00:00Z"
+    }
+}
+\end{lstlisting}
+
+\section{Gestión de Dispositivos}
+
+\subsection{Obtener Lista de Dispositivos}
+
+\textbf{Endpoint:} \texttt{GET /api/devices}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\end{itemize}
+
+\textbf{Parámetros de consulta opcionales:}
+\begin{itemize}
+\item \texttt{sala\_id}: Filtrar por sala
+\item \texttt{tipo}: Filtrar por tipo (calidad\_aire, temperatura, humedad)
+\item \texttt{activo}: Filtrar por estado (true/false)
+\end{itemize}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+# Obtener todos los dispositivos
+curl -X GET http://localhost:5000/api/devices \
+  -H "Authorization: Bearer $TOKEN"
+
+# Filtrar por tipo
+curl -X GET "http://localhost:5000/api/devices?tipo=calidad_aire" \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (200):}
+\begin{lstlisting}[language=JSON]
+{
+    "devices": [
+        {
+            "id": 1,
+            "nombre": "Sensor A101",
+            "tipo": "calidad_aire",
+            "sala_id": 1,
+            "token": "device_token_a101",
+            "activo": true,
+            "fecha_creacion": "2025-09-28T10:00:00Z"
+        }
+    ],
+    "total": 1
+}
+\end{lstlisting}
+
+\subsection{Registrar Nuevo Dispositivo}
+
+\textbf{Endpoint:} \texttt{POST /api/devices}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\item \texttt{Content-Type: application/json}
+\end{itemize}
+
+\textbf{Body (JSON):}
+\begin{lstlisting}[language=JSON]
+{
+    "nombre": "Sensor Laboratorio B202",
+    "tipo": "calidad_aire",
+    "sala_id": 2
+}
+\end{lstlisting}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+curl -X POST http://localhost:5000/api/devices \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "Sensor Laboratorio B202",
+    "tipo": "calidad_aire",
+    "sala_id": 2
+  }'
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (201):}
+\begin{lstlisting}[language=JSON]
+{
+    "message": "Dispositivo registrado exitosamente",
+    "device": {
+        "id": 2,
+        "nombre": "Sensor Laboratorio B202",
+        "tipo": "calidad_aire",
+        "sala_id": 2,
+        "token": "generated_device_token_xyz",
+        "activo": true,
+        "fecha_creacion": "2025-09-28T15:30:00Z"
+    }
+}
+\end{lstlisting}
+
+\section{Lecturas Ambientales}
+
+\subsection{Obtener Lecturas de Calidad del Aire}
+
+\textbf{Endpoint:} \texttt{GET /api/readings/air-quality}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\end{itemize}
+
+\textbf{Parámetros de consulta opcionales:}
+\begin{itemize}
+\item \texttt{device\_id}: ID del dispositivo específico
+\item \texttt{sala\_id}: ID de la sala
+\item \texttt{fecha\_inicio}: Fecha de inicio (ISO format: YYYY-MM-DDTHH:MM:SS)
+\item \texttt{fecha\_fin}: Fecha de fin (ISO format)
+\item \texttt{limit}: Número máximo de lecturas (default: 100, max: 1000)
+\end{itemize}
+
+\textbf{Comandos curl:}
+\begin{lstlisting}[language=bash]
+# Obtener lecturas recientes de calidad del aire
+curl -X GET http://localhost:5000/api/readings/air-quality \
+  -H "Authorization: Bearer $TOKEN"
+
+# Obtener lecturas de un dispositivo específico
+curl -X GET "http://localhost:5000/api/readings/air-quality?device_id=1&limit=50" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Obtener lecturas por rango de fechas
+curl -X GET "http://localhost:5000/api/readings/air-quality?device_id=1&fecha_inicio=2025-09-28T00:00:00&fecha_fin=2025-09-28T23:59:59" \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (200):}
+\begin{lstlisting}[language=JSON]
+{
+    "readings": [
+        {
+            "id": 1,
+            "dispositivo_id": 1,
+            "valor_pm1": 15.2,
+            "valor_pm2_5": 25.8,
+            "valor_pm10": 35.4,
+            "etiqueta": "ambiente",
+            "fecha_lectura": "2025-09-28T14:30:00Z"
+        }
+    ],
+    "total": 1
+}
+\end{lstlisting}
+
+\subsection{Enviar Lectura desde Dispositivo IoT}
+
+\textbf{Endpoint:} \texttt{POST /api/readings/air-quality}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \{device\_token\}}
+\item \texttt{Content-Type: application/json}
+\end{itemize}
+
+\textbf{Body (JSON):}
+\begin{lstlisting}[language=JSON]
+{
+    "pm1": 12.5,
+    "pm2_5": 18.3,
+    "pm10": 22.7,
+    "etiqueta": "ambiente"
+}
+\end{lstlisting}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+# Usar el token del dispositivo (no el JWT del usuario)
+DEVICE_TOKEN="device_token_a101"
+
+curl -X POST http://localhost:5000/api/readings/air-quality \
+  -H "Authorization: Bearer $DEVICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pm1": 12.5,
+    "pm2_5": 18.3,
+    "pm10": 22.7,
+    "etiqueta": "ambiente"
+  }'
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (201):}
+\begin{lstlisting}[language=JSON]
+{
+    "message": "Lectura registrada exitosamente",
+    "reading": {
+        "id": 2,
+        "dispositivo_id": 1,
+        "valor_pm1": 12.5,
+        "valor_pm2_5": 18.3,
+        "valor_pm10": 22.7,
+        "etiqueta": "ambiente",
+        "fecha_lectura": "2025-09-28T15:45:00Z"
+    }
+}
+\end{lstlisting}
+
+\subsection{Obtener Estadísticas de Calidad del Aire}
+
+\textbf{Endpoint:} \texttt{GET /api/readings/air-quality/stats}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\end{itemize}
+
+\textbf{Parámetros de consulta requeridos:}
+\begin{itemize}
+\item \texttt{device\_id}: ID del dispositivo
+\end{itemize}
+
+\textbf{Parámetros opcionales:}
+\begin{itemize}
+\item \texttt{hours}: Horas para calcular estadísticas (default: 24, max: 168)
+\end{itemize}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+curl -X GET "http://localhost:5000/api/readings/air-quality/stats?device_id=1&hours=24" \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (200):}
+\begin{lstlisting}[language=JSON]
+{
+    "device_id": 1,
+    "stats": {
+        "promedio_pm1": 14.8,
+        "promedio_pm2_5": 23.2,
+        "promedio_pm10": 31.5,
+        "max_pm2_5": 45.2,
+        "min_pm2_5": 12.1,
+        "lecturas_totales": 48,
+        "periodo_horas": 24
+    }
+}
+\end{lstlisting}
+
+\subsection{Obtener Lecturas de Temperatura}
+
+\textbf{Endpoint:} \texttt{GET /api/readings/temperature}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\end{itemize}
+
+\textbf{Parámetros requeridos:}
+\begin{itemize}
+\item \texttt{device\_id}: ID del dispositivo de temperatura
+\end{itemize}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+curl -X GET "http://localhost:5000/api/readings/temperature?device_id=3" \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+
+\textbf{Nota:} Actualmente retorna mensaje de implementación pendiente.
+
+\subsection{Obtener Lecturas de Humedad}
+
+\textbf{Endpoint:} \texttt{GET /api/readings/humidity}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\end{itemize}
+
+\textbf{Parámetros requeridos:}
+\begin{itemize}
+\item \texttt{device\_id}: ID del dispositivo de humedad
+\end{itemize}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+curl -X GET "http://localhost:5000/api/readings/humidity?device_id=4" \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+
+\textbf{Nota:} Actualmente retorna mensaje de implementación pendiente.
+
+\section{Gestión de Asignaciones de Limpieza}
+
+\subsection{Obtener Lista de Asignaciones}
+
+\textbf{Endpoint:} \texttt{GET /api/assignments}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\end{itemize}
+
+\textbf{Parámetros de consulta opcionales:}
+\begin{itemize}
+\item \texttt{user\_id}: ID del usuario asignado
+\item \texttt{sala\_id}: ID de la sala
+\item \texttt{estado}: Estado de la asignación (pendiente, en\_progreso, completada, cancelada)
+\item \texttt{limit}: Número máximo de resultados (default: 50)
+\end{itemize}
+
+\textbf{Comandos curl:}
+\begin{lstlisting}[language=bash]
+# Obtener asignaciones pendientes
+curl -X GET http://localhost:5000/api/assignments \
+  -H "Authorization: Bearer $TOKEN"
+
+# Obtener asignaciones de un usuario específico
+curl -X GET "http://localhost:5000/api/assignments?user_id=2&estado=pendiente" \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (200):}
+\begin{lstlisting}[language=JSON]
+{
+    "assignments": [
+        {
+            "id": 1,
+            "usuario_id": 2,
+            "sala_id": 1,
+            "dispositivo_id": 1,
+            "estado": "pendiente",
+            "prioridad": "alta",
+            "descripcion": "Limpieza urgente por contaminación elevada",
+            "fecha_asignacion": "2025-09-28T10:00:00Z",
+            "fecha_completada": null,
+            "notas": null
+        }
+    ],
+    "total": 1
+}
+\end{lstlisting}
+
+\subsection{Crear Nueva Asignación}
+
+\textbf{Endpoint:} \texttt{POST /api/assignments}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\item \texttt{Content-Type: application/json}
+\end{itemize}
+
+\textbf{Body (JSON):}
+\begin{lstlisting}[language=JSON]
+{
+    "usuario_id": 2,
+    "sala_id": 1,
+    "dispositivo_id": 1,
+    "prioridad": "alta",
+    "descripcion": "Limpieza urgente por contaminación elevada"
+}
+\end{lstlisting}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+curl -X POST http://localhost:5000/api/assignments \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "usuario_id": 2,
+    "sala_id": 1,
+    "dispositivo_id": 1,
+    "prioridad": "alta",
+    "descripcion": "Limpieza urgente por contaminación elevada"
+  }'
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (201):}
+\begin{lstlisting}[language=JSON]
+{
+    "message": "Asignación creada exitosamente",
+    "assignment": {
+        "id": 2,
+        "usuario_id": 2,
+        "sala_id": 1,
+        "dispositivo_id": 1,
+        "estado": "pendiente",
+        "prioridad": "alta",
+        "descripcion": "Limpieza urgente por contaminación elevada",
+        "fecha_asignacion": "2025-09-28T16:00:00Z"
+    },
+    "notification": {
+        "sent": true,
+        "message": "Se ha enviado una notificación al usuario asignado"
+    }
+}
+\end{lstlisting}
+
+\subsection{Completar Asignación}
+
+\textbf{Endpoint:} \texttt{PUT /api/assignments/\{id\}}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\item \texttt{Content-Type: application/json}
+\end{itemize}
+
+\textbf{Body (JSON):}
+\begin{lstlisting}[language=JSON]
+{
+    "estado": "completada",
+    "notas": "Limpieza completada satisfactoriamente. Área desinfectada."
+}
+\end{lstlisting}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+curl -X PUT http://localhost:5000/api/assignments/1 \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "estado": "completada",
+    "notas": "Limpieza completada satisfactoriamente. Área desinfectada."
+  }'
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (200):}
+\begin{lstlisting}[language=JSON]
+{
+    "message": "Asignación completada exitosamente",
+    "assignment": {
+        "id": 1,
+        "estado": "completada",
+        "fecha_completada": "2025-09-28T17:30:00Z",
+        "notas": "Limpieza completada satisfactoriamente. Área desinfectada."
+    }
+}
+\end{lstlisting}
+
+\subsection{Obtener Estadísticas de Asignaciones}
+
+\textbf{Endpoint:} \texttt{GET /api/assignments/stats}
+
+\textbf{Headers requeridos:}
+\begin{itemize}
+\item \texttt{Authorization: Bearer \$TOKEN}
+\end{itemize}
+
+\textbf{Parámetros opcionales:}
+\begin{itemize}
+\item \texttt{days}: Días para calcular estadísticas (default: 30, max: 365)
+\end{itemize}
+
+\textbf{Comando curl:}
+\begin{lstlisting}[language=bash]
+curl -X GET "http://localhost:5000/api/assignments/stats?days=7" \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+
+\textbf{Respuesta exitosa (200):}
+\begin{lstlisting}[language=JSON]
+{
+    "stats": {
+        "total_asignaciones": 25,
+        "completadas": 20,
+        "pendientes": 3,
+        "en_progreso": 2,
+        "tasa_completitud": 80.0,
+        "promedio_completacion_horas": 4.5
+    },
+    "period_days": 7
+}
+\end{lstlisting}
+
+\section{Ejemplos de Flujo Completo}
+
+\subsection{Flujo 1: Monitoreo Continuo de Calidad del Aire}
+
+\begin{enumerate}
+\item \textbf{Login como administrador:}
+\begin{lstlisting}[language=bash]
+curl -X POST http://localhost:5000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@universidad.edu", "password": "admin123"}'
+\end{lstlisting}
+
+\item \textbf{Obtener token del dispositivo:}
+\begin{lstlisting}[language=bash]
+curl -X GET http://localhost:5000/api/devices \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+
+\item \textbf{Dispositivo envía lecturas periódicamente:}
+\begin{lstlisting}[language=bash]
+# Simular envío desde dispositivo IoT
+curl -X POST http://localhost:5000/api/readings/air-quality \
+  -H "Authorization: Bearer device_token_a101" \
+  -H "Content-Type: application/json" \
+  -d '{"pm1": 15.2, "pm2_5": 25.8, "pm10": 35.4}'
+\end{lstlisting}
+
+\item \textbf{Consultar estadísticas:}
+\begin{lstlisting}[language=bash]
+curl -X GET "http://localhost:5000/api/readings/air-quality/stats?device_id=1" \
+  -H "Authorization: Bearer $TOKEN"
+\end{lstlisting}
+\end{enumerate}
+
+\subsection{Flujo 2: Gestión de Limpieza por Contaminación}
+
+\begin{enumerate}
+\item \textbf{Detectar contaminación elevada (automático desde lecturas)}
+
+\item \textbf{Crear asignación de limpieza:}
+\begin{lstlisting}[language=bash]
+curl -X POST http://localhost:5000/api/assignments \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "usuario_id": 2,
+    "sala_id": 1,
+    "prioridad": "alta",
+    "descripcion": "Contaminación PM2.5 > 50 µg/m³ detectada"
+  }'
+\end{lstlisting}
+
+\item \textbf{Usuario asignado marca como completada:}
+\begin{lstlisting}[language=bash]
+curl -X PUT http://localhost:5000/api/assignments/1 \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"estado": "completada", "notas": "Limpieza realizada"}'
+\end{lstlisting}
+\end{enumerate}
+
+\section{Códigos de Error Comunes}
+
+\begin{itemize}
+\item \textbf{400 Bad Request:} Datos inválidos en la solicitud
+\item \textbf{401 Unauthorized:} Token inválido o expirado
+\item \textbf{403 Forbidden:} Permisos insuficientes
+\item \textbf{404 Not Found:} Recurso no encontrado
+\item \textbf{500 Internal Server Error:} Error del servidor
+\end{itemize}
+
+\textbf{Ejemplo de respuesta de error:}
+\begin{lstlisting}[language=JSON]
+{
+    "error": "Acceso denegado",
+    "message": "No tienes permisos para acceder a este recurso"
+}
+\end{lstlisting}
+
+\section{Datos de Prueba}
+
+La base de datos incluye datos de prueba pre-cargados:
+
+\begin{itemize}
+\item \textbf{Universidad:} Universidad Nacional
+\item \textbf{Usuarios:}
+  \begin{itemize}
+  \item admin@universidad.edu / admin123 (Administrador)
+  \item supervisor@universidad.edu / supervisor123 (Supervisor)
+  \item user@universidad.edu / user123 (Usuario regular)
+  \end{itemize}
+\item \textbf{Dispositivos:} 4 dispositivos de diferentes tipos
+\item \textbf{Salas:} 4 salas de diferentes tipos
+\end{itemize}
+
+\section{Consideraciones de Producción}
+
+\begin{itemize}
+\item Configurar variables de entorno para producción
+\item Usar HTTPS en producción
+\item Implementar rate limiting avanzado
+\item Configurar logs rotativos
+\item Usar base de datos PostgreSQL en producción
+\item Configurar CORS apropiadamente
+\end{itemize}
+
+\end{document}

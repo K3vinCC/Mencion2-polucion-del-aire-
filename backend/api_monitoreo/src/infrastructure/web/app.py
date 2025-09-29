@@ -3,6 +3,7 @@ from flask import Flask, jsonify
 import os
 from src.adapters.web.routes import api_blueprint
 from src.infrastructure.dependencies import container
+from src.application.errors.exceptions import BaseError
 
 def create_app():
     app = Flask(__name__)
@@ -35,5 +36,10 @@ def create_app():
         # import traceback
         # traceback.print_exc()
         return jsonify({"error": "Ocurrió un error interno en el servidor"}), 500
+
+    @app.errorhandler(BaseError)
+    def handle_base_error(e):
+        """Maneja errores de negocio personalizados."""
+        return jsonify({"error": str(e)}), 400
 
     return app

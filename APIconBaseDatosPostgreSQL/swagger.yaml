@@ -1,0 +1,874 @@
+openapi: 3.0.3
+info:
+  title: API de Monitoreo de Calidad del Aire - Polución Aire UNI
+  description: |
+    API RESTful para el sistema de monitoreo de calidad del aire según documento maestro v1.2
+    
+    ## Arquitectura
+    - Implementa principios SOLID, ACID, Arquitectura Hexagonal y Clean Architecture
+    - Base de datos PostgreSQL con esquema DBML optimizado
+    - Autenticación JWT manual con expiración de 12 horas
+    - Notificaciones automáticas por Telegram
+    
+    ## Roles del Sistema
+    - **SuperAdmin**: Gestión global de universidades
+    - **Admin_Universidad**: Gestión completa de su universidad
+    - **Conserje**: Monitoreo y asignación de tareas en su edificio
+    - **Limpiador**: Recibe notificaciones por Telegram (sin acceso web)
+    
+    ## Autenticación de Dispositivos (Doble Factor)
+    Los sensores IoT se autentican con:
+    1. Dirección MAC (identificador físico)
+    2. API Token (secreto hasheado)
+    
+    ## Colores de Indicadores de Calidad
+    - 🟢 **Bueno**: #27B500
+    - 🟡 **Moderado**: #DFD922  
+    - 🟠 **Nocivo**: #DF7A22
+    - 🔴 **Insalubre**: #DB3737
+    - 🟣 **Muy Insalubre**: #9C4AD3
+    - 🟤 **Peligroso**: #6D0815
+    
+  version: "1.2.0"
+  contact:
+    name: Universidad Nacional de Ingeniería
+    email: admin@uni.edu.pe
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:5000
+    description: Servidor de desarrollo local
+  - url: https://api.uni.edu.pe
+    description: Servidor de producción
+
+tags:
+  - name: Autenticación
+    description: Login y verificación de tokens JWT (12h expiración)
+  - name: Usuarios
+    description: Gestión de usuarios por Admin_Universidad
+  - name: Dispositivos  
+    description: Registro y gestión de sensores IoT
+  - name: Lecturas
+    description: Recepción de datos de sensores (autenticación doble factor)
+  - name: Asignaciones
+    description: Sistema de asignaciones de limpieza con Telegram
+  - name: Dashboard
+    description: Datos jerárquicos para interfaces de usuario
+  - name: Sistema
+    description: Health check y diagnósticos
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT con expiración de 12 horas
+    
+    deviceAuth:
+      type: apiKey
+      in: header
+      name: X-API-Token
+      description: Autenticación de dispositivo con MAC + Token
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Tipo de error
+        message:
+          type: string
+          description: Mensaje descriptivo del error
+      required:
+        - error
+        - message
+
+    Usuario:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID único del usuario
+        email:
+          type: string
+          format: email
+          description: Email único del usuario
+        nombre_completo:
+          type: string
+          description: Nombre completo del usuario
+        rol:
+          type: string
+          enum: [SuperAdmin, Admin_Universidad, Conserje, Limpiador]
+          description: Rol del usuario en el sistema
+        universidad_id:
+          type: integer
+          nullable: true
+          description: ID de la universidad (null para SuperAdmin)
+        fecha_creacion:
+          type: string
+          format: date-time
+          description: Fecha de creación del usuario
+      required:
+        - id
+        - email
+        - nombre_completo
+        - rol
+
+    Dispositivo:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID único del dispositivo
+        mac_address:
+          type: string
+          pattern: "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$"
+          description: Dirección MAC del dispositivo
+          example: "3C:71:BF:4F:9D:E4"
+        sala_id:
+          type: integer
+          description: ID de la sala donde está instalado
+        modelo_id:
+          type: integer
+          description: ID del modelo de dispositivo
+        estado:
+          type: string
+          enum: [conectado, desconectado]
+          description: Estado actual del dispositivo
+        fecha_instalacion:
+          type: string
+          format: date
+          description: Fecha de instalación
+        ultima_vez_visto:
+          type: string
+          format: date-time
+          nullable: true
+          description: Última vez que el dispositivo envió datos
+
+    LecturaCalidadAire:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID único de la lectura
+        dispositivo_id:
+          type: integer
+          description: ID del dispositivo que envió la lectura
+        valor_pm1:
+          type: number
+          format: float
+          description: Partículas PM1.0 en μg/m³
+        valor_pm2_5:
+          type: number
+          format: float
+          description: Partículas PM2.5 en μg/m³
+        valor_pm10:
+          type: number
+          format: float
+          description: Partículas PM10 en μg/m³
+        etiqueta:
+          type: string
+          enum: [Bueno, Moderado, Nocivo, Insalubre, Muy Insalubre, Peligroso]
+          description: Clasificación de la calidad del aire
+        fecha_lectura:
+          type: string
+          format: date-time
+          description: Timestamp de la lectura
+
+    AsignacionLimpieza:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID único de la asignación
+        sala_id:
+          type: integer
+          description: ID de la sala a limpiar
+        asignado_por_usuario_id:
+          type: integer
+          description: ID del conserje que asignó la tarea
+        asignado_a_usuario_id:
+          type: integer
+          description: ID del limpiador asignado
+        estado:
+          type: string
+          enum: [pendiente, en_progreso, completado, cancelado]
+          description: Estado actual de la asignación
+        fecha_creacion:
+          type: string
+          format: date-time
+          description: Fecha y hora de creación de la asignación
+        fecha_completado:
+          type: string
+          format: date-time
+          nullable: true
+          description: Fecha y hora de completado
+
+paths:
+  /login:
+    post:
+      tags:
+        - Autenticación
+      summary: Autenticar usuario y obtener token JWT
+      description: |
+        Autentica un usuario del sistema (SuperAdmin, Admin_Universidad, Conserje) 
+        y devuelve un token JWT con expiración de 12 horas.
+        
+        **Roles permitidos**: Público
+        
+        **Rendimiento**: Respuesta < 500ms según documento maestro
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: Email del usuario
+                  example: "admin@uni.edu.pe"
+                clave:
+                  type: string
+                  description: Contraseña del usuario
+                  example: "password123"
+              required:
+                - email
+                - clave
+      responses:
+        '200':
+          description: Autenticación exitosa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: Token JWT firmado
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  expira_en:
+                    type: integer
+                    description: Tiempo de expiración en segundos
+                    example: 43200
+                  usuario:
+                    allOf:
+                      - $ref: '#/components/schemas/Usuario'
+                      - type: object
+                        properties:
+                          rol:
+                            type: string
+                            description: Rol del usuario autenticado
+                required:
+                  - token
+                  - expira_en
+                  - usuario
+        '400':
+          description: Datos de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                campos_requeridos:
+                  value:
+                    error: "Campos requeridos"
+                    message: "Email y clave son requeridos"
+        '401':
+          description: Credenciales inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Credenciales inválidas"
+                message: "Email o contraseña incorrectos"
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /usuarios:
+    post:
+      tags:
+        - Usuarios
+      summary: Crear nuevo usuario (Conserje o Limpiador)
+      description: |
+        Crea un nuevo usuario en el sistema. Solo Admin_Universidad puede crear usuarios.
+        
+        **Rol requerido**: Admin_Universidad
+      operationId: createUser
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nombre_completo:
+                  type: string
+                  description: Nombre completo del usuario
+                  example: "Juan Pérez"
+                email:
+                  type: string
+                  format: email
+                  description: Email único del usuario
+                  example: "juan.perez@uni.edu.pe"
+                clave:
+                  type: string
+                  description: Contraseña del usuario
+                  example: "password123"
+                rol_id:
+                  type: integer
+                  description: ID del rol (3=Conserje, 4=Limpiador)
+                  example: 3
+              required:
+                - nombre_completo
+                - email
+                - clave
+                - rol_id
+      responses:
+        '201':
+          description: Usuario creado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Usuario'
+        '400':
+          description: Datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token inválido o expirado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol insuficiente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      tags:
+        - Usuarios
+      summary: Obtener lista de usuarios de la universidad
+      description: |
+        Retorna todos los usuarios de la universidad del administrador.
+        
+        **Rol requerido**: Admin_Universidad
+      operationId: getUsers
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de usuarios
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Usuario'
+
+  /usuarios/{id}:
+    get:
+      tags:
+        - Usuarios
+      summary: Obtener detalles de un usuario específico
+      description: |
+        Retorna los detalles de un usuario por su ID.
+        
+        **Rol requerido**: Admin_Universidad
+      operationId: getUserById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID del usuario
+      responses:
+        '200':
+          description: Detalles del usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Usuario'
+        '404':
+          description: Usuario no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /dispositivos:
+    post:
+      tags:
+        - Dispositivos
+      summary: Registrar nuevo dispositivo sensor
+      description: |
+        Registra un nuevo dispositivo en el sistema y genera su API token.
+        El token se muestra solo una vez por seguridad.
+        
+        **Rol requerido**: Admin_Universidad
+      operationId: createDevice
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mac_address:
+                  type: string
+                  pattern: "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$"
+                  description: Dirección MAC del dispositivo
+                  example: "3C:71:BF:4F:9D:E4"
+                modelo_id:
+                  type: integer
+                  description: ID del modelo de dispositivo
+                  example: 1
+                sala_id:
+                  type: integer
+                  description: ID de la sala donde se instalará
+                  example: 101
+              required:
+                - mac_address
+                - modelo_id
+                - sala_id
+      responses:
+        '201':
+          description: Dispositivo registrado exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: ID del dispositivo creado
+                  mac_address:
+                    type: string
+                    description: Dirección MAC confirmada
+                  api_token:
+                    type: string
+                    description: Token API (se muestra solo una vez)
+                    example: "ESTE_TOKEN_SE_MUESTRA_SOLO_UNA_VEZ"
+                required:
+                  - id
+                  - mac_address
+                  - api_token
+
+    get:
+      tags:
+        - Dispositivos
+      summary: Listar dispositivos de la universidad
+      description: |
+        Retorna todos los dispositivos registrados en la universidad.
+        
+        **Rol requerido**: Admin_Universidad
+      operationId: getDevices
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de dispositivos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: '#/components/schemas/Dispositivo'
+                    - type: object
+                      properties:
+                        sala:
+                          type: string
+                          description: Nombre de la sala
+                          example: "Sala 101"
+
+  /lecturas:
+    post:
+      tags:
+        - Lecturas
+      summary: Recibir datos de sensores (Autenticación Doble Factor)
+      description: |
+        Endpoint para que los dispositivos IoT envíen sus lecturas.
+        Requiere autenticación de doble factor: MAC + API Token.
+        
+        **Autenticación requerida**: Dispositivo (Doble Factor)
+        
+        ### Proceso de Validación:
+        1. El servidor busca el dispositivo por X-Device-MAC
+        2. Hashea el X-API-Token recibido
+        3. Compara con el api_token_hash almacenado
+        4. Solo si coinciden, acepta la lectura
+      operationId: receiveReadings
+      parameters:
+        - name: X-API-Token
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Token API del dispositivo
+          example: "device_api_token_here"
+        - name: X-Device-MAC
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$"
+          description: Dirección MAC del dispositivo
+          example: "3C:71:BF:4F:9D:E4"
+      requestBody:
+        required: true
+        description: Datos del sensor (pueden estar encriptados)
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                temperatura:
+                  type: number
+                  format: float
+                  description: Temperatura en grados Celsius
+                  example: 22.5
+                humedad:
+                  type: number
+                  format: float
+                  description: Humedad relativa en porcentaje
+                  example: 45.1
+                pm1:
+                  type: number
+                  format: float
+                  description: Partículas PM1.0 en μg/m³
+                  example: 8.2
+                pm2_5:
+                  type: number
+                  format: float
+                  description: Partículas PM2.5 en μg/m³
+                  example: 15.7
+                pm10:
+                  type: number
+                  format: float
+                  description: Partículas PM10 en μg/m³
+                  example: 23.4
+              required:
+                - temperatura
+                - humedad
+                - pm2_5
+      responses:
+        '202':
+          description: Datos recibidos y procesados
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "datos recibidos"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    description: Timestamp del servidor
+        '400':
+          description: Datos de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Autenticación de dispositivo fallida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                mac_no_encontrado:
+                  value:
+                    error: "Dispositivo no encontrado"
+                    message: "No se encontró un dispositivo con esa MAC"
+                token_invalido:
+                  value:
+                    error: "Token inválido"
+                    message: "El API token no es válido para este dispositivo"
+
+  /asignaciones:
+    post:
+      tags:
+        - Asignaciones
+      summary: Crear asignación de limpieza con notificación Telegram
+      description: |
+        Crea una nueva asignación de limpieza y envía automáticamente
+        una notificación por Telegram al limpiador seleccionado.
+        
+        **Rol requerido**: Conserje
+      operationId: createAssignment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sala_id:
+                  type: integer
+                  description: ID de la sala a limpiar
+                  example: 101
+                asignado_a_usuario_id:
+                  type: integer
+                  description: ID del limpiador asignado
+                  example: 25
+                mensaje:
+                  type: string
+                  description: Mensaje personalizado para el limpiador
+                  example: "Calidad de aire nociva. Ventilar y limpiar."
+              required:
+                - sala_id
+                - asignado_a_usuario_id
+      responses:
+        '201':
+          description: Asignación creada y notificación enviada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: ID de la asignación creada
+                  sala:
+                    type: string
+                    description: Nombre de la sala
+                    example: "Sala 101"
+                  limpiador:
+                    type: string
+                    description: Nombre del limpiador asignado
+                    example: "María Rojas"
+                  estado:
+                    type: string
+                    example: "pendiente"
+                  telegram_enviado:
+                    type: boolean
+                    description: Si la notificación Telegram fue enviada
+                    example: true
+
+    get:
+      tags:
+        - Asignaciones
+      summary: Obtener historial de asignaciones del edificio
+      description: |
+        Retorna el historial de asignaciones del edificio del conserje.
+        
+        **Rol requerido**: Conserje
+      operationId: getAssignments
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Historial de asignaciones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AsignacionLimpieza'
+
+  /dashboard/universidad/{id}:
+    get:
+      tags:
+        - Dashboard
+      summary: Dashboard de universidad (Admin_Universidad)
+      description: |
+        Obtiene datos completos de la universidad para el dashboard administrativo.
+        Incluye jerarquía: Universidad → Campus → Edificios → Salas → Dispositivos
+        
+        **Rol requerido**: Admin_Universidad
+      operationId: getUniversityDashboard
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID de la universidad
+      responses:
+        '200':
+          description: Datos del dashboard universitario
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nombre_universidad:
+                    type: string
+                    description: Nombre de la universidad
+                    example: "Universidad Nacional de Ingeniería"
+                  campus:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        nombre:
+                          type: string
+                          example: "Campus Central"
+                        edificios:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: integer
+                              nombre:
+                                type: string
+                                example: "Edificio de Ingeniería"
+                              salas:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    id:
+                                      type: integer
+                                    nombre:
+                                      type: string
+                                      example: "Aula 101"
+                                    dispositivos_activos:
+                                      type: integer
+                                      description: Número de dispositivos conectados
+                                    ultima_lectura:
+                                      type: string
+                                      format: date-time
+                                      nullable: true
+
+  /dashboard/edificio/{id}:
+    get:
+      tags:
+        - Dashboard
+      summary: Dashboard de edificio en tiempo real (Conserje)
+      description: |
+        Obtiene datos en tiempo real de todas las salas del edificio asignado al conserje.
+        Incluye últimas lecturas y clasificaciones de calidad del aire.
+        
+        **Rol requerido**: Conserje
+      operationId: getBuildingDashboard
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID del edificio
+      responses:
+        '200':
+          description: Dashboard del edificio en tiempo real
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nombre_edificio:
+                    type: string
+                    example: "Edificio de Ingeniería Civil"
+                  salas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        nombre:
+                          type: string
+                          example: "Sala 101"
+                        piso:
+                          type: integer
+                          example: 1
+                        temperatura:
+                          type: number
+                          format: float
+                          example: 22.5
+                          description: Última temperatura registrada
+                        humedad:
+                          type: number
+                          format: float
+                          example: 45.1
+                          description: Última humedad registrada
+                        calidad_aire_etiqueta:
+                          type: string
+                          enum: [Bueno, Moderado, Nocivo, Insalubre, Muy Insalubre, Peligroso]
+                          example: "Moderado"
+                        calidad_aire_color:
+                          type: string
+                          example: "#DFD922"
+                          description: Color hexadecimal según la clasificación
+                        dispositivo_estado:
+                          type: string
+                          enum: [conectado, desconectado]
+                          example: "conectado"
+                        ultima_actualizacion:
+                          type: string
+                          format: date-time
+                          description: Timestamp de la última lectura
+
+  /health:
+    get:
+      tags:
+        - Sistema
+      summary: Health check del sistema
+      description: |
+        Verifica el estado general del sistema y sus componentes.
+        No requiere autenticación.
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Sistema saludable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  service:
+                    type: string
+                    example: "Air Quality Monitoring API"
+                  version:
+                    type: string
+                    example: "1.2.0"
+                  database:
+                    type: string
+                    enum: [connected, disconnected]
+                    example: "connected"
+                  timestamp:
+                    type: string
+                    format: date-time
+
+security:
+  - bearerAuth: []
