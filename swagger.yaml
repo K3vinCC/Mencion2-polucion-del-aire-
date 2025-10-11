@@ -1,0 +1,889 @@
+openapi: 3.0.3
+info:
+  title: API de Monitoreo de Calidad del Aire
+  description: API REST para el sistema de monitoreo de calidad del aire con arquitectura hexagonal
+  version: 1.0.0
+  contact:
+    name: Equipo de Desarrollo
+    email: soporte@monitoreo-aire.com
+
+servers:
+  - url: http://localhost:5000/api
+    description: Servidor de desarrollo
+
+security:
+  - bearerAuth: []
+  - deviceToken: []
+
+paths:
+  /register:
+    post:
+      summary: Registrar nuevo usuario
+      description: Crea una nueva cuenta de usuario en el sistema
+      tags:
+        - Autenticación
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nombre
+                - correo
+                - clave
+              properties:
+                nombre:
+                  type: string
+                  example: "Juan Pérez"
+                correo:
+                  type: string
+                  format: email
+                  example: "juan.perez@email.com"
+                clave:
+                  type: string
+                  minLength: 8
+                  example: "password123"
+                rol:
+                  type: string
+                  enum: [administrador, conserje]
+                  default: conserje
+                  example: "conserje"
+      responses:
+        201:
+          description: Usuario registrado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Usuario'
+        409:
+          description: El correo ya está registrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        400:
+          description: Datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /login:
+    post:
+      summary: Iniciar sesión
+      description: Autentica un usuario y devuelve un token JWT
+      tags:
+        - Autenticación
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - correo
+                - clave
+              properties:
+                correo:
+                  type: string
+                  format: email
+                  example: "juan.perez@email.com"
+                clave:
+                  type: string
+                  example: "password123"
+      responses:
+        200:
+          description: Login exitoso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    example: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
+        401:
+          description: Credenciales inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users:
+    get:
+      summary: Obtener todos los usuarios
+      description: Lista todos los usuarios del sistema (solo administradores)
+      tags:
+        - Usuarios
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Lista de usuarios
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Usuario'
+        401:
+          description: No autorizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        403:
+          description: Permisos insuficientes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/{userId}:
+    get:
+      summary: Obtener usuario específico
+      description: Obtiene la información de un usuario por su ID
+      tags:
+        - Usuarios
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        200:
+          description: Información del usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Usuario'
+        404:
+          description: Usuario no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Actualizar usuario
+      description: Actualiza la información de un usuario (solo administradores)
+      tags:
+        - Usuarios
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nombre:
+                  type: string
+                  example: "Juan Pérez Actualizado"
+                correo:
+                  type: string
+                  format: email
+                  example: "juan.actualizado@email.com"
+                rol:
+                  type: string
+                  enum: [administrador, conserje]
+                  example: "conserje"
+                numero_contacto:
+                  type: string
+                  example: "+56912345678"
+      responses:
+        200:
+          description: Usuario actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Usuario'
+        403:
+          description: Permisos insuficientes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        404:
+          description: Usuario no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Eliminar usuario
+      description: Elimina un usuario del sistema (solo administradores)
+      tags:
+        - Usuarios
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        200:
+          description: Usuario eliminado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Usuario eliminado exitosamente"
+        403:
+          description: Permisos insuficientes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        404:
+          description: Usuario no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /devices:
+    post:
+      summary: Crear dispositivo
+      description: Registra un nuevo dispositivo de monitoreo (solo administradores)
+      tags:
+        - Dispositivos
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nombre
+                - ubicacion
+                - id_edificio
+              properties:
+                nombre:
+                  type: string
+                  example: "Sensor Piso 1 - Sala A"
+                ubicacion:
+                  type: string
+                  example: "Edificio Principal, Piso 1, Sala de Reuniones A"
+                id_edificio:
+                  type: integer
+                  example: 1
+      responses:
+        201:
+          description: Dispositivo creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dispositivo'
+        403:
+          description: Permisos insuficientes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      summary: Obtener dispositivos
+      description: Lista todos los dispositivos del sistema
+      tags:
+        - Dispositivos
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Lista de dispositivos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Dispositivo'
+
+  /devices/{deviceId}:
+    get:
+      summary: Obtener dispositivo específico
+      description: Obtiene la información de un dispositivo por su ID
+      tags:
+        - Dispositivos
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        200:
+          description: Información del dispositivo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dispositivo'
+        404:
+          description: Dispositivo no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /readings:
+    post:
+      summary: Crear lectura
+      description: Registra una nueva lectura de calidad del aire desde un dispositivo
+      tags:
+        - Lecturas
+      security:
+        - deviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - pm25
+                - pm10
+                - co2
+                - temperatura
+                - humedad
+              properties:
+                pm25:
+                  type: number
+                  format: float
+                  example: 12.5
+                pm10:
+                  type: number
+                  format: float
+                  example: 25.3
+                co2:
+                  type: number
+                  format: float
+                  example: 450.0
+                temperatura:
+                  type: number
+                  format: float
+                  example: 22.5
+                humedad:
+                  type: number
+                  format: float
+                  example: 65.0
+      responses:
+        201:
+          description: Lectura registrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lectura'
+        400:
+          description: Datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      summary: Obtener lecturas
+      description: Consulta lecturas de calidad del aire con filtros opcionales
+      tags:
+        - Lecturas
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: device_id
+          in: query
+          schema:
+            type: integer
+          description: Filtrar por ID de dispositivo
+          example: 1
+        - name: building_id
+          in: query
+          schema:
+            type: integer
+          description: Filtrar por ID de edificio
+          example: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+          description: Número máximo de resultados
+          example: 50
+      responses:
+        200:
+          description: Lista de lecturas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Lectura'
+
+  /readings/{readingId}:
+    get:
+      summary: Obtener lectura específica
+      description: Obtiene una lectura específica por su ID
+      tags:
+        - Lecturas
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: readingId
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        200:
+          description: Información de la lectura
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lectura'
+        404:
+          description: Lectura no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /readings/stats:
+    get:
+      summary: Estadísticas de calidad del aire
+      description: Obtiene estadísticas promedio de calidad del aire por edificio
+      tags:
+        - Lecturas
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: building_id
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: ID del edificio
+          example: 1
+        - name: hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+          description: Periodo en horas para calcular estadísticas
+          example: 24
+      responses:
+        200:
+          description: Estadísticas del edificio
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  edificio_id:
+                    type: integer
+                    example: 1
+                  periodo_horas:
+                    type: integer
+                    example: 24
+                  promedio:
+                    type: object
+                    properties:
+                      pm25:
+                        type: number
+                        format: float
+                        example: 15.2
+                      pm10:
+                        type: number
+                        format: float
+                        example: 28.7
+                      co2:
+                        type: number
+                        format: float
+                        example: 425.0
+                      temperatura:
+                        type: number
+                        format: float
+                        example: 23.1
+                      humedad:
+                        type: number
+                        format: float
+                        example: 62.5
+        400:
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /assignments:
+    post:
+      summary: Crear asignación
+      description: Crea una nueva asignación de limpieza basada en una lectura
+      tags:
+        - Asignaciones
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id_lectura
+                - id_usuario_asignado
+                - descripcion
+              properties:
+                id_lectura:
+                  type: integer
+                  example: 1
+                id_usuario_asignado:
+                  type: integer
+                  example: 2
+                descripcion:
+                  type: string
+                  example: "Limpiar filtros de ventilación en Sala A - Alta concentración de PM2.5 detectada"
+                prioridad:
+                  type: string
+                  enum: [baja, media, alta, urgente]
+                  default: media
+                  example: "alta"
+      responses:
+        201:
+          description: Asignación creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asignacion'
+        403:
+          description: Permisos insuficientes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      summary: Obtener asignaciones
+      description: Lista asignaciones con filtros opcionales
+      tags:
+        - Asignaciones
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: estado
+          in: query
+          schema:
+            type: string
+            enum: [pendiente, en_progreso, completada, cancelada]
+          description: Filtrar por estado
+          example: "pendiente"
+        - name: user_id
+          in: query
+          schema:
+            type: integer
+          description: Filtrar por usuario asignado
+          example: 2
+      responses:
+        200:
+          description: Lista de asignaciones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Asignacion'
+
+  /assignments/{assignmentId}:
+    get:
+      summary: Obtener asignación específica
+      description: Obtiene una asignación específica por su ID
+      tags:
+        - Asignaciones
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: assignmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        200:
+          description: Información de la asignación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asignacion'
+        404:
+          description: Asignación no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Actualizar asignación
+      description: Actualiza el estado de una asignación
+      tags:
+        - Asignaciones
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: assignmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - estado
+              properties:
+                estado:
+                  type: string
+                  enum: [pendiente, en_progreso, completada, cancelada]
+                  example: "completada"
+      responses:
+        200:
+          description: Asignación actualizada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Asignación actualizada a estado: completada"
+        403:
+          description: Permisos insuficientes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        404:
+          description: Asignación no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /assignments/{assignmentId}/complete:
+    put:
+      summary: Completar asignación
+      description: Marca una asignación como completada (solo el usuario asignado)
+      tags:
+        - Asignaciones
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: assignmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        200:
+          description: Asignación completada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Asignación completada exitosamente"
+        403:
+          description: Solo el usuario asignado puede completar la tarea
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        404:
+          description: Asignación no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Usuario:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        nombre:
+          type: string
+          example: "Juan Pérez"
+        correo:
+          type: string
+          format: email
+          example: "juan.perez@email.com"
+        rol:
+          type: string
+          enum: [administrador, conserje]
+          example: "conserje"
+        numero_contacto:
+          type: string
+          example: "+56912345678"
+        url_imagen_perfil:
+          type: string
+          format: uri
+          example: "https://example.com/avatar.jpg"
+        id_edificio_asignado:
+          type: integer
+          example: 1
+        fecha_creacion:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00Z"
+
+    Dispositivo:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        nombre:
+          type: string
+          example: "Sensor Piso 1 - Sala A"
+        ubicacion:
+          type: string
+          example: "Edificio Principal, Piso 1, Sala de Reuniones A"
+        token_acceso:
+          type: string
+          example: "abc123def456ghi789"
+        id_edificio:
+          type: integer
+          example: 1
+        estado:
+          type: string
+          enum: [activo, inactivo, mantenimiento]
+          example: "activo"
+        fecha_instalacion:
+          type: string
+          format: date
+          example: "2025-01-15"
+        ultima_lectura:
+          type: string
+          format: date-time
+          example: "2025-01-15T14:30:00Z"
+
+    Lectura:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        id_dispositivo:
+          type: integer
+          example: 1
+        pm25:
+          type: number
+          format: float
+          example: 12.5
+        pm10:
+          type: number
+          format: float
+          example: 25.3
+        co2:
+          type: number
+          format: float
+          example: 450.0
+        temperatura:
+          type: number
+          format: float
+          example: 22.5
+        humedad:
+          type: number
+          format: float
+          example: 65.0
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-01-15T14:30:00Z"
+
+    Asignacion:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        id_lectura:
+          type: integer
+          example: 1
+        id_usuario_asignado:
+          type: integer
+          example: 2
+        descripcion:
+          type: string
+          example: "Limpiar filtros de ventilación en Sala A - Alta concentración de PM2.5 detectada"
+        estado:
+          type: string
+          enum: [pendiente, en_progreso, completada, cancelada]
+          example: "pendiente"
+        prioridad:
+          type: string
+          enum: [baja, media, alta, urgente]
+          example: "alta"
+        fecha_asignacion:
+          type: string
+          format: date-time
+          example: "2025-01-15T14:35:00Z"
+        fecha_completado:
+          type: string
+          format: date-time
+          nullable: true
+          example: null
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Mensaje de error descriptivo"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT obtenido del endpoint /login
+
+    deviceToken:
+      type: apiKey
+      in: header
+      name: X-Device-Token
+      description: Token único del dispositivo para autenticación de IoT

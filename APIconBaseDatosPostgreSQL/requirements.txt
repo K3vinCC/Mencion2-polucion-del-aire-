@@ -1,0 +1,46 @@
+# requirements.txt
+# Dependencias del proyecto API de Monitoreo de Calidad del Aire
+
+# Framework web
+Flask==2.3.3
+Flask-CORS==4.0.0
+Flask-SQLAlchemy==3.0.5
+
+# Base de datos PostgreSQL
+SQLAlchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.13.1
+
+# Autenticación y seguridad
+PyJWT==2.8.0
+bcrypt==4.0.1
+cryptography==41.0.7
+
+# Notificaciones
+python-telegram-bot==20.7
+
+# Validación y serialización
+pydantic==2.5.2
+marshmallow==3.20.1
+flask-marshmallow==1.2.1
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+
+# Desarrollo y debugging
+python-dotenv==1.0.0
+black==23.11.0
+isort==5.12.0
+flake8==6.1.0
+
+# Utilidades
+python-dateutil==2.8.2
+requests==2.31.0
+
+# Logging
+structlog==23.2.0
+
+# Documentación API
+flask-swagger-ui==4.11.1
