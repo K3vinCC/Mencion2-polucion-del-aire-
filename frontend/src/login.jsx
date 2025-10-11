@@ -123,33 +123,29 @@ function LoginForm({ onSwitchToRegister }) {
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage(null);
+  e.preventDefault();
+  setLoading(true);
+  setMessage(null);
 
-    const res = await controller.login({
-      email,
-      password,
-      role,
-      onResult: (r) => setMessage(r),
-    });
+  const res = await controller.login({
+    email,
+    password,
+    role,
+    onResult: (r) => setMessage(r),
+  });
 
-    setLoading(false);
+  setLoading(false);
 
-    if (res.success) {
-      switch(res.rol) {
-        case 'admin':
-          navigate('/principal');
-          break;
-        case 'conserje':
-          navigate('/principal');
-          break;
-        default:
-          navigate('/principal');
-          break;
-      }
+  if (res.success) {
+    if (res.rol === 'admin') {
+      navigate('/principal');
+    } else if (res.rol === 'conserje') {
+      navigate('/principalC');
+    } else {
+      navigate('/');
     }
-  };
+  }
+};
 
   return (
     <div className="auth-card">
@@ -161,6 +157,11 @@ function LoginForm({ onSwitchToRegister }) {
           </svg>
         </div>
         <h2 className="auth-title">Iniciar Sesión</h2>
+        {message && (
+          <div className={`message ${message.success ? 'success' : 'error'}`}>
+            {message.message}
+          </div>
+        )}
         <p className="auth-subtitle">Bienvenido de vuelta</p>
       </div>
 
@@ -238,6 +239,18 @@ function LoginForm({ onSwitchToRegister }) {
         <button className="link-btn" onClick={onSwitchToRegister}>
           Crear cuenta
         </button>
+         <button 
+          className="link-btn" 
+          onClick={() => navigate('/forgot-password')}
+          style={{ 
+            marginTop: '10px', 
+            fontSize: '14px',
+            width: '100%',
+            textAlign: 'center' 
+          }}
+        >
+          ¿Olvidaste tu contraseña?
+        </button>
       </div>
     </div>
   );
@@ -261,8 +274,6 @@ function RegisterForm({ onSwitchToLogin }) {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
-
-    console.log('🔥 Rol seleccionado antes de enviar:', role); // Debug
 
     const res = await controller.register({
       nombre: name,

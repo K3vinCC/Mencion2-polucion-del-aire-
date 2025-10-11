@@ -3,8 +3,11 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import ModernAuthSystem from "./login";
 import PrivateRoute from "./services/PrivateRoute";
 import Principal from "./Principal";
+import PrincipalC from "./PrincipalC";
 import AdminPage from "./pages/AdminPage";
 import ConserjePage from "./pages/ConserjePage";
+import ForgotPassword from './ForgotPassword';
+import ResetPassword from './ResetPassword';
 
 
 function App() {
@@ -16,7 +19,7 @@ function App() {
 
         {}
         <Route element={<PrivateRoute />}>
-          <Route path="/principal" element={<Principal />} />
+          <Route path="/principal" element={<PrincipalC />} />
         </Route>
 
         <Route element={<PrivateRoute requiredRole="admin" />}>
@@ -24,8 +27,12 @@ function App() {
         </Route>
 
         <Route element={<PrivateRoute requiredRole="conserje" />}>
-          <Route path="/principal" element={<Principal />} />
+          <Route path="/principalC" element={<PrincipalC />} />
         </Route>
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        
+        <Route path="/reset-password/:token" element={<ResetPassword />} />
+        
 
         {}
         <Route path="*" element={<Navigate to="/" replace />} />

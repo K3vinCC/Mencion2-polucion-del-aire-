@@ -34,4 +34,38 @@ class AuthAdapter {
       return { success: false, message: 'Error de conexión al servidor' };
     }
   }
+  async forgotPassword(email) {
+    try {
+      const res = await fetch(`${this.baseURL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: 'Error de conexión al servidor' };
+    }
+  }
+
+  async verifyResetToken(token) {
+    try {
+      const res = await fetch(`${this.baseURL}/auth/verify-reset-token/${token}`);
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: 'Error de conexión al servidor' };
+    }
+  }
+
+  async resetPassword(token, password) {
+    try {
+      const res = await fetch(`${this.baseURL}/auth/reset-password/${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: 'Error de conexión al servidor' };
+    }
+  }
 }
