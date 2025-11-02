@@ -9,9 +9,17 @@
 #include <HardwareSerial.h>
 
 // -------------------- CONFIG --------------------
-const char* ssid = "nombre_wifi";
-const char* password = "contraseña_wifi";
-const char* serverURL = "direccion_servidor"; // e.g., "http://example.com/api/data"
+const char* ssid = "usuario";
+const char* password = "passwd";
+
+const char* loginURL = "direccion_ip/login";
+const char* serverURL = "direccion_ip/datos";
+
+// Credenciales del dispositivo
+const char* device_id = "id_esp32";
+const char* device_secret = "credenciassha_256";
+
+String jwtToken = "";
 
 // -------------------- ESTRUCTURA --------------------
 struct PMS5003Data {
@@ -22,7 +30,6 @@ struct PMS5003Data {
 class SensorManager {
   DHT dht;
   HardwareSerial& pmsSerial;
-  PMS5003Data data;
 
 public:
   SensorManager(uint8_t dhtPin, uint8_t dhtType, HardwareSerial& serial)
@@ -38,41 +45,23 @@ public:
   float readHum() { return dht.readHumidity(); }
 
   PMS5003Data readPMS() {
-    static PMS5003Data lastValidData = {0, 0, 0}; // para no devolver ceros si falla
-    PMS5003Data emptyData = lastValidData;
-
-    while (pmsSerial.available() >= 32) {
-        // Buscar inicio de frame 0x42 0x4D
-        if (pmsSerial.read() != 0x42) continue;
-        if (pmsSerial.read() != 0x4D) continue;
-
+    PMS5003Data pmsData = {0, 0, 0};
+    if (pmsSerial.available() >= 32) {
+      if (pmsSerial.read() == 0x42 && pmsSerial.read() == 0x4D) {
         uint8_t frame[32];
-        frame[0] = 0x42; // ya leido
+        frame[0] = 0x42;
         frame[1] = 0x4D;
-        pmsSerial.readBytes(&frame[2], 30); // leer resto del frame
+        pmsSerial.readBytes(&frame[2], 30);
 
-        // Calcular checksum
-        uint16_t sum = 0;
-        for (int i = 0; i < 30; i++) sum += frame[i];
-        uint16_t checksum = (frame[30] << 8) | frame[31];
+        uint16_t pm1 = (frame[4] << 8) | frame[5];
+        uint16_t pm25 = (frame[6] << 8) | frame[7];
+        uint16_t pm10 = (frame[8] << 8) | frame[9];
 
-        if (sum != checksum) {
-            Serial.println("Checksum inválido");
-            continue; // intentar con siguiente frame
-        }
-
-        PMS5003Data data;
-        data.pm10_standard  = (frame[4] << 8) | frame[5];  // PM1.0
-        data.pm25_standard  = (frame[6] << 8) | frame[7];  // PM2.5
-        data.pm100_standard = (frame[8] << 8) | frame[9];  // PM10
-
-        lastValidData = data; // actualizar último valor válido
-        return data;
+        pmsData = {pm1, pm25, pm10};
+      }
     }
-
-    return emptyData; // no hay frame disponible, devuelve último válido
-}
-
+    return pmsData;
+  }
 };
 
 // -------------------- DISPLAY MANAGER --------------------
@@ -84,49 +73,69 @@ public:
 
   bool begin() {
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-      Serial.println("Error: No se detecta la pantalla OLED");
+      Serial.println("Error: OLED no detectada");
       return false;
     }
     display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 0);
-    display.println("Estacion Climática");
     display.display();
-    delay(2000);
     return true;
   }
 
   void showReadings(float temp, float hum, PMS5003Data data) {
     display.clearDisplay();
     display.setTextSize(1);
-    display.setCursor(0, 0); display.print("T: "); display.print(temp,1); display.println(" C");
-    display.setCursor(0,10); display.print("H: "); display.print(hum,1); display.println(" %");
-    display.setCursor(69,0); display.print("PM1.0: "); display.println(data.pm10_standard);
-    display.setCursor(69,12); display.print("PM2.5: "); display.println(data.pm25_standard);
-    display.setCursor(69,24); display.print("PM10: "); display.println(data.pm100_standard);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0); display.printf("T: %.1f C\n", temp);
+    display.setCursor(0,12); display.printf("H: %.1f %%\n", hum);
+    display.setCursor(0,24); display.printf("PM1: %d\n", data.pm10_standard);
+    display.setCursor(0,36); display.printf("PM2.5: %d\n", data.pm25_standard);
+    display.setCursor(0,48); display.printf("PM10: %d\n", data.pm100_standard);
     display.display();
   }
 };
 
-// -------------------- MY NETWORK MANAGER --------------------
+// -------------------- NETWORK MANAGER --------------------
 class MyNetworkManager {
-  const char* ssid;
-  const char* password;
-  const char* serverURL;
-
 public:
-  MyNetworkManager(const char* s, const char* p, const char* url)
-    : ssid(s), password(p), serverURL(url) {}
-
   void connectWiFi() {
     WiFi.begin(ssid, password);
-    Serial.print("Conectando a WiFi");
+    Serial.print("Conectando WiFi");
     while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
       Serial.print(".");
+      delay(500);
     }
-    Serial.println("\nConectado a WiFi");
+    Serial.println("\n✅ WiFi Conectado");
+  }
+
+  bool loginDevice() {
+    if (WiFi.status() != WL_CONNECTED) return false;
+
+    HTTPClient http;
+    http.begin(loginURL);
+    http.addHeader("Content-Type", "application/json");
+
+    StaticJsonDocument<200> doc;
+    doc["device_id"] = device_id;
+    doc["device_secret"] = device_secret;
+
+    String body;
+    serializeJson(doc, body);
+
+    int code = http.POST(body);
+    if (code == 200) {
+      String response = http.getString();
+      StaticJsonDocument<300> resDoc;
+      deserializeJson(resDoc, response);
+      jwtToken = resDoc["token"].as<String>();
+
+      Serial.println("✅ Token actualizado!");
+      http.end();
+      return true;
+    }
+
+    Serial.printf("❌ Error login: %d\n", code);
+    http.end();
+    return false;
   }
 
   void sendData(float temp, float hum, PMS5003Data data) {
@@ -135,92 +144,79 @@ public:
       return;
     }
 
-    if (isnan(temp) || isnan(hum)) {
-      Serial.println("Error: Datos inválidos");
-      return;
+    if (jwtToken == "") {
+      if (!loginDevice()) return;
     }
 
     HTTPClient http;
     http.begin(serverURL);
     http.addHeader("Content-Type", "application/json");
+    http.addHeader("Authorization", "Bearer " + jwtToken);
 
     StaticJsonDocument<200> doc;
+    doc["device_id"] = device_id;
     doc["temperatura"] = temp;
     doc["humedad"] = hum;
     doc["pm1_0"] = data.pm10_standard;
     doc["pm2_5"] = data.pm25_standard;
-    doc["pm10"]  = data.pm100_standard;
+    doc["pm10"] = data.pm100_standard;
 
     String payload;
     serializeJson(doc, payload);
 
     int code = http.POST(payload);
-    if (code <= 0) {
-      Serial.println("Error enviando datos.");
-    } else {
-      Serial.printf("Datos enviados. Respuesta: %d\n", code);
+    Serial.printf("Server response: %d\n", code);
+
+    if (code == 401 || code == 403) {
+      jwtToken = "";
+      Serial.println("⚠ Token expirado, reintentando login...");
+      loginDevice();
     }
+
     http.end();
   }
 };
 
-// -------------------- APP CONTROLLER --------------------
+// -------------------- APP --------------------
 class AppController {
   SensorManager sensors;
   DisplayManager display;
   MyNetworkManager network;
 
-  unsigned long lastDisplayUpdate = 0;
   unsigned long lastSend = 0;
-  const unsigned long displayInterval = 1000;   // 1 segundo
-  const unsigned long sendInterval = 60000;     // 1 minuto
-
-  float temp;
-  float hum;
-  PMS5003Data pms;
+  unsigned long lastDisplay = 0;
 
 public:
-  AppController()
-    : sensors(4, DHT22, Serial2),
-      network(ssid, password, serverURL) {}
+  AppController() : sensors(4, DHT22, Serial2) {}
 
   void setup() {
     Serial.begin(115200);
     network.connectWiFi();
     sensors.begin();
-    if (!display.begin()) {
-      while (true) delay(1000); // Error crítico
-    }
-    Serial.println("Iniciando estación de calidad del aire...");
+    display.begin();
+    Serial.println("📡 Estación esp32n1 lista...");
   }
 
   void loop() {
     unsigned long now = millis();
 
-    // Actualizar sensores
-    temp = sensors.readTemp();
-    hum = sensors.readHum();
-    pms = sensors.readPMS();
+    float temp = sensors.readTemp();
+    float hum = sensors.readHum();
+    PMS5003Data pms = sensors.readPMS();
 
-    // Refrescar pantalla cada segundo
-    if (now - lastDisplayUpdate >= displayInterval) {
-      lastDisplayUpdate = now;
+    if (now - lastDisplay > 1000) {
+      lastDisplay = now;
       display.showReadings(temp, hum, pms);
-
-      Serial.printf("T: %.1f C | H: %.1f %% | PM1.0: %d | PM2.5: %d | PM10: %d\n",
-                    temp, hum, pms.pm10_standard, pms.pm25_standard, pms.pm100_standard);
     }
 
-    // Enviar al servidor cada minuto
-    if (now - lastSend >= sendInterval) {
+    if (now - lastSend > 60000) {
       lastSend = now;
       network.sendData(temp, hum, pms);
     }
   }
 };
 
-// -------------------- INSTANCIA GLOBAL --------------------
 AppController app;
 
 void setup() { app.setup(); }
-void loop()  { app.loop(); }
+void loop() { app.loop(); }
