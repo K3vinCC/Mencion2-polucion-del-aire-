@@ -1,155 +1,97 @@
-from abc import ABC, abstractmethod
-import psycopg2
+from flask import Flask, request, jsonify
+import json
+import jwt # Necesitaras instalar PyJWT: pip install PyJWT
+import datetime
+from functools import wraps
 
-# -----------------------------
-# Interfaz base para repositorios de lectura
-# -----------------------------
-class RepositorioLecturas(ABC):
-    @abstractmethod
-    def insertar(self, data: dict) -> int:
-        pass
+app = Flask(__name__)
 
-# -----------------------------
-# Conexion a la base de datos
-# -----------------------------
-class ConexionPostgreSQL:
-    DB_NAME = "polucion_aire"
-    DB_USER = "kevincdb"
-    DB_PASSWORD = "2010"
-    DB_HOST = "localhost"
-    DB_PORT = "5432"
+# --- CONFIGURACION DE SEGURIDAD ---
 
-    def obtener_conexion(self):
-        return psycopg2.connect(
-            host=self.DB_HOST,
-            database=self.DB_NAME,
-            user=self.DB_USER,
-            password=self.DB_PASSWORD,
-            port=self.DB_PORT
-        )
+with open('/etc/miapp_secret', 'r') as f:
+    app.config['SECRET_KEY'] = f.read().strip()
 
-# -----------------------------
-# Clase base para repositorios con validaciones
-# -----------------------------
-class RepositorioValidable(RepositorioLecturas):
-    def __init__(self, conexion: ConexionPostgreSQL):
-        self.conexion = conexion
 
-    @property
-    @abstractmethod
-    def campos_obligatorios(self) -> list[str]:
-        pass
+# Las credenciales deben coincidir EXACTAMENTE con las del ESP32.
+# Cargar dispositivos desde archivo seguro
+with open('/etc/miapp/devices.json', 'r') as f:
+    AUTHORIZED_DEVICES = json.load(f)
 
-    @property
-    @abstractmethod
-    def reglas_validacion(self) -> dict[str, callable]:
-        """Devuelve un diccionario {campo: función_validacion}"""
-        pass
 
-    @abstractmethod
-    def query_insert(self) -> str:
-        pass
+# --- DECORADOR PARA PROTEGER RUTAS ---
+# Este decorador actua como un "guardia de seguridad" para los endpoints.
+# Revisa si hay un token valido antes de permitir el acceso.
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        # El token se espera en la cabecera 'Authorization' con el formato 'Bearer <token>'
+        if 'Authorization' in request.headers:
+            try:
+                token = request.headers['Authorization'].split(" ")[1]
+            except IndexError:
+                return jsonify({'message': 'Formato de token invalido'}), 401
 
-    @abstractmethod
-    def obtener_parametros(self, data: dict) -> tuple:
-        pass
+        if not token:
+            return jsonify({'message': 'Token no encontrado'}), 401
 
-    def validar_datos(self, data: dict):
-        # Validar campos obligatorios
-        for campo in self.campos_obligatorios:
-            if campo not in data or data[campo] is None:
-                raise ValueError(f"El campo '{campo}' es obligatorio y no puede ser None")
-        # Validaciones específicas
-        for campo, regla in self.reglas_validacion.items():
-            if campo in data and not regla(data[campo]):
-                raise ValueError(f"Valor inválido para '{campo}': {data[campo]}")
-
-    def insertar(self, data: dict) -> int:
-        self.validar_datos(data)
-        conn = self.conexion.obtener_conexion()
         try:
-            with conn.cursor() as cur:
-                cur.execute(self.query_insert(), self.obtener_parametros(data))
-                id_insertado = cur.fetchone()[0]
-                conn.commit()
-                return id_insertado
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            conn.close()
+            # Decodifica el token usando la SECRET_KEY
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            current_device_id = data['sub']
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'El token ha expirado'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Token invalido'}), 401
+        
+        # Pasa el ID del dispositivo decodificado a la funcion del endpoint
+        return f(current_device_id, *args, **kwargs)
+    return decorated
 
-# -----------------------------
-# Repositorios concretos
-# -----------------------------
-class LecturaTemperaturaRepositorio(RepositorioValidable):
-    campos_obligatorios = ["dispositivo_id", "grados_temperatura"]
-    reglas_validacion = {
-        "grados_temperatura": lambda x: -50 <= x <= 60
-    }
 
-    def query_insert(self) -> str:
-        return """
-            INSERT INTO lecturas_temperatura (dispositivo_id, grados_temperatura, etiqueta)
-            VALUES (%s, %s, %s) RETURNING id;
-        """
+# --- ENDPOINT DE AUTENTICACION ---
+# Aqui es donde el ESP32 viene a pedir su "pase de acceso" (el token)
+@app.route('/login', methods=['POST'])
+def login():
+    auth_data = request.json
+    device_id = auth_data.get('device_id')
+    device_secret = auth_data.get('device_secret')
 
-    def obtener_parametros(self, data: dict) -> tuple:
-        return (data["dispositivo_id"], data["grados_temperatura"], data.get("etiqueta"))
+    # Verifica si el dispositivo y su clave secreta son correctos
+    if device_id and device_secret and AUTHORIZED_DEVICES.get(device_id) == device_secret:
+        # Si las credenciales son validas, crea un token que expira en 24 horas
+        token = jwt.encode({
+            'sub': device_id,
+            'iat': datetime.datetime.utcnow(), # Issued At Time
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+        }, app.config['SECRET_KEY'], algorithm="HS256")
 
-class LecturaHumedadRepositorio(RepositorioValidable):
-    campos_obligatorios = ["dispositivo_id", "porcentaje_humedad"]
-    reglas_validacion = {
-        "porcentaje_humedad": lambda x: 0 <= x <= 100
-    }
+        return jsonify({'token': token})
 
-    def query_insert(self) -> str:
-        return """
-            INSERT INTO lecturas_humedad (dispositivo_id, porcentaje_humedad, etiqueta)
-            VALUES (%s, %s, %s) RETURNING id;
-        """
+    # Si las credenciales son incorrectas, deniega el acceso
+    return jsonify({'message': 'No se pudo verificar'}), 401, {'WWW-Authenticate': 'Basic realm="Login required!"'}
 
-    def obtener_parametros(self, data: dict) -> tuple:
-        return (data["dispositivo_id"], data["porcentaje_humedad"], data.get("etiqueta"))
 
-class LecturaCalidadAireRepositorio(RepositorioValidable):
-    campos_obligatorios = ["dispositivo_id", "valor_pm1", "valor_pm2_5", "valor_pm10"]
-    reglas_validacion = {
-        "valor_pm1": lambda x: x >= 0,
-        "valor_pm2_5": lambda x: x >= 0,
-        "valor_pm10": lambda x: x >= 0
-    }
+# --- ENDPOINT PROTEGIDO PARA RECIBIR DATOS ---
+# Gracias a @token_required, esta funcion solo se ejecutara si el token es valido
+@app.route('/datos', methods=['POST'])
+@token_required
+def recibir_datos(current_device_id):
+    # 'current_device_id' nos lo pasa el decorador despues de validar el token
+    print(f"Recibiendo datos del dispositivo autorizado: {current_device_id}")
+    
+    sensor_data = request.json
+    print("Datos recibidos:", sensor_data)
+    
+    # --- AQUI VA TU LOGICA ---
+    # Por ejemplo, guardar los datos en tu base de datos GraphQL.
+    # Ya puedes confiar en que estos datos vienen de un dispositivo verificado.
+    
+    return jsonify({"status": "ok", "message": "Datos recibidos correctamente"})
 
-    def query_insert(self) -> str:
-        return """
-            INSERT INTO lecturas_calidad_aire (dispositivo_id, valor_pm1, valor_pm2_5, valor_pm10, etiqueta)
-            VALUES (%s, %s, %s, %s, %s) RETURNING id;
-        """
 
-    def obtener_parametros(self, data: dict) -> tuple:
-        return (
-            data["dispositivo_id"],
-            data["valor_pm1"],
-            data["valor_pm2_5"],
-            data["valor_pm10"],
-            data.get("etiqueta")
-        )
-
-# -----------------------------
-# Simulacion de envio de datos
-# -----------------------------
+# --- EJECUCION DEL SERVIDOR ---
 if __name__ == "__main__":
-    conexion = ConexionPostgreSQL()
-
-    temp_repo = LecturaTemperaturaRepositorio(conexion)
-    humedad_repo = LecturaHumedadRepositorio(conexion)
-    aire_repo = LecturaCalidadAireRepositorio(conexion)
-
-    # Datos simulados
-    temp_data = {"dispositivo_id": 1, "grados_temperatura": 25.3, "etiqueta": "Oficina"}
-    humedad_data = {"dispositivo_id": 1, "porcentaje_humedad": 48.2, "etiqueta": "Oficina"}
-    aire_data = {"dispositivo_id": 1, "valor_pm1": 10.5, "valor_pm2_5": 20.1, "valor_pm10": 30.7, "etiqueta": "Sala"}
-
-    print(f"ID temperatura: {temp_repo.insertar(temp_data)}")
-    print(f"ID humedad: {humedad_repo.insertar(humedad_data)}")
-    print(f"ID calidad aire: {aire_repo.insertar(aire_data)}")
+    # Usa host='0.0.0.0' para que el servidor sea accesible desde otros dispositivos en la red
+    # El puerto debe estar abierto en tu router/firewall
+    app.run(host="0.0.0.0", port=8000)
